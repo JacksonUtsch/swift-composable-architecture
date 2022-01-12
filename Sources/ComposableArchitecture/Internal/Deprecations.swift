@@ -22,7 +22,7 @@ extension Reducer {
     breakpointOnNil: Bool,
     file: StaticString = #fileID,
     line: UInt = #line
-  ) -> Reducer<GlobalState, GlobalAction, GlobalEnvironment> {
+  ) -> Reducer<GlobalState, GlobalAction, GlobalEnvironment, Failure> {
     self.pullback(
       state: toLocalState,
       action: toLocalAction,
@@ -42,7 +42,7 @@ extension Reducer {
     file: StaticString = #fileID,
     line: UInt = #line
   ) -> Reducer<
-    State?, Action, Environment
+    State?, Action, Environment, Failure
   > {
     self.optional(file: file, line: line)
   }
@@ -59,7 +59,7 @@ extension Reducer {
     breakpointOnNil: Bool,
     file: StaticString = #fileID,
     line: UInt = #line
-  ) -> Reducer<GlobalState, GlobalAction, GlobalEnvironment> {
+	) -> Reducer<GlobalState, GlobalAction, GlobalEnvironment, Failure> {
     self.forEach(
       state: toLocalState,
       action: toLocalAction,
@@ -81,7 +81,7 @@ extension Reducer {
     breakpointOnNil: Bool,
     file: StaticString = #fileID,
     line: UInt = #line
-  ) -> Reducer<GlobalState, GlobalAction, GlobalEnvironment> {
+  ) -> Reducer<GlobalState, GlobalAction, GlobalEnvironment, Failure> {
     self.forEach(
       state: toLocalState,
       action: toLocalAction,

@@ -176,7 +176,7 @@
     private var line: UInt
     private var longLivingEffects: Set<LongLivingEffect> = []
     var receivedActions: [(action: Action, state: State)] = []
-    private let reducer: Reducer<State, Action, Environment>
+    private let reducer: Reducer<State, Action, Environment, Never>
     private var snapshotState: State
     private var store: Store<State, TestAction>!
     private let toLocalState: (State) -> LocalState
