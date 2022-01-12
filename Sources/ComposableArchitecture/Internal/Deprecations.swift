@@ -1,6 +1,260 @@
 import CasePaths
 import Combine
 import SwiftUI
+import XCTestDynamicOverlay
+
+#if DEBUG
+  import os
+#endif
+
+// NB: Deprecated after 0.31.0:
+
+extension Reducer {
+  @available(
+    *,
+    deprecated,
+    message: "'pullback' no longer takes a 'breakpointOnNil' argument"
+  )
+  public func pullback<GlobalState, GlobalAction, GlobalEnvironment>(
+    state toLocalState: CasePath<GlobalState, State>,
+    action toLocalAction: CasePath<GlobalAction, Action>,
+    environment toLocalEnvironment: @escaping (GlobalEnvironment) -> Environment,
+    breakpointOnNil: Bool,
+    file: StaticString = #fileID,
+    line: UInt = #line
+  ) -> Reducer<GlobalState, GlobalAction, GlobalEnvironment> {
+    self.pullback(
+      state: toLocalState,
+      action: toLocalAction,
+      environment: toLocalEnvironment,
+      file: file,
+      line: line
+    )
+  }
+
+  @available(
+    *,
+    deprecated,
+    message: "'optional' no longer takes a 'breakpointOnNil' argument"
+  )
+  public func optional(
+    breakpointOnNil: Bool,
+    file: StaticString = #fileID,
+    line: UInt = #line
+  ) -> Reducer<
+    State?, Action, Environment
+  > {
+    self.optional(file: file, line: line)
+  }
+
+  @available(
+    *,
+    deprecated,
+    message: "'forEach' no longer takes a 'breakpointOnNil' argument"
+  )
+  public func forEach<GlobalState, GlobalAction, GlobalEnvironment, ID>(
+    state toLocalState: WritableKeyPath<GlobalState, IdentifiedArray<ID, State>>,
+    action toLocalAction: CasePath<GlobalAction, (ID, Action)>,
+    environment toLocalEnvironment: @escaping (GlobalEnvironment) -> Environment,
+    breakpointOnNil: Bool,
+    file: StaticString = #fileID,
+    line: UInt = #line
+  ) -> Reducer<GlobalState, GlobalAction, GlobalEnvironment> {
+    self.forEach(
+      state: toLocalState,
+      action: toLocalAction,
+      environment: toLocalEnvironment,
+      file: file,
+      line: line
+    )
+  }
+
+  @available(
+    *,
+    deprecated,
+    message: "'forEach' no longer takes a 'breakpointOnNil' argument"
+  )
+  public func forEach<GlobalState, GlobalAction, GlobalEnvironment, Key>(
+    state toLocalState: WritableKeyPath<GlobalState, [Key: State]>,
+    action toLocalAction: CasePath<GlobalAction, (Key, Action)>,
+    environment toLocalEnvironment: @escaping (GlobalEnvironment) -> Environment,
+    breakpointOnNil: Bool,
+    file: StaticString = #fileID,
+    line: UInt = #line
+  ) -> Reducer<GlobalState, GlobalAction, GlobalEnvironment> {
+    self.forEach(
+      state: toLocalState,
+      action: toLocalAction,
+      environment: toLocalEnvironment,
+      file: file,
+      line: line
+    )
+  }
+}
+
+// NB: Deprecated after 0.29.0:
+
+#if DEBUG
+  extension TestStore where LocalState: Equatable, Action: Equatable {
+    @available(
+      *, deprecated, message: "Use 'TestStore.send' and 'TestStore.receive' directly, instead"
+    )
+    public func assert(
+      _ steps: Step...,
+      file: StaticString = #file,
+      line: UInt = #line
+    ) {
+      assert(steps, file: file, line: line)
+    }
+
+    @available(
+      *, deprecated, message: "Use 'TestStore.send' and 'TestStore.receive' directly, instead"
+    )
+    public func assert(
+      _ steps: [Step],
+      file: StaticString = #file,
+      line: UInt = #line
+    ) {
+
+      func assert(step: Step) {
+        switch step.type {
+        case let .send(action, update):
+          self.send(action, file: step.file, line: step.line, update)
+
+        case let .receive(expectedAction, update):
+          self.receive(expectedAction, file: step.file, line: step.line, update)
+
+        case let .environment(work):
+          if !self.receivedActions.isEmpty {
+            var actions = ""
+            customDump(self.receivedActions.map(\.action), to: &actions)
+            XCTFail(
+              """
+              Must handle \(self.receivedActions.count) received \
+              action\(self.receivedActions.count == 1 ? "" : "s") before performing this work: …
+
+              Unhandled actions: \(actions)
+              """,
+              file: step.file, line: step.line
+            )
+          }
+          do {
+            try work(&self.environment)
+          } catch {
+            XCTFail("Threw error: \(error)", file: step.file, line: step.line)
+          }
+
+        case let .do(work):
+          if !receivedActions.isEmpty {
+            var actions = ""
+            customDump(self.receivedActions.map(\.action), to: &actions)
+            XCTFail(
+              """
+              Must handle \(self.receivedActions.count) received \
+              action\(self.receivedActions.count == 1 ? "" : "s") before performing this work: …
+
+              Unhandled actions: \(actions)
+              """,
+              file: step.file, line: step.line
+            )
+          }
+          do {
+            try work()
+          } catch {
+            XCTFail("Threw error: \(error)", file: step.file, line: step.line)
+          }
+
+        case let .sequence(subSteps):
+          subSteps.forEach(assert(step:))
+        }
+      }
+
+      steps.forEach(assert(step:))
+
+      self.completed()
+    }
+
+    public struct Step {
+      fileprivate let type: StepType
+      fileprivate let file: StaticString
+      fileprivate let line: UInt
+
+      private init(
+        _ type: StepType,
+        file: StaticString = #file,
+        line: UInt = #line
+      ) {
+        self.type = type
+        self.file = file
+        self.line = line
+      }
+
+      @available(*, deprecated, message: "Call 'TestStore.send' directly, instead")
+      public static func send(
+        _ action: LocalAction,
+        file: StaticString = #file,
+        line: UInt = #line,
+        _ update: @escaping (inout LocalState) throws -> Void = { _ in }
+      ) -> Step {
+        Step(.send(action, update), file: file, line: line)
+      }
+
+      @available(*, deprecated, message: "Call 'TestStore.receive' directly, instead")
+      public static func receive(
+        _ action: Action,
+        file: StaticString = #file,
+        line: UInt = #line,
+        _ update: @escaping (inout LocalState) throws -> Void = { _ in }
+      ) -> Step {
+        Step(.receive(action, update), file: file, line: line)
+      }
+
+      @available(*, deprecated, message: "Mutate 'TestStore.environment' directly, instead")
+      public static func environment(
+        file: StaticString = #file,
+        line: UInt = #line,
+        _ update: @escaping (inout Environment) throws -> Void
+      ) -> Step {
+        Step(.environment(update), file: file, line: line)
+      }
+
+      @available(*, deprecated, message: "Perform this work directly in your test, instead")
+      public static func `do`(
+        file: StaticString = #file,
+        line: UInt = #line,
+        _ work: @escaping () throws -> Void
+      ) -> Step {
+        Step(.do(work), file: file, line: line)
+      }
+
+      @available(*, deprecated, message: "Perform this work directly in your test, instead")
+      public static func sequence(
+        _ steps: [Step],
+        file: StaticString = #file,
+        line: UInt = #line
+      ) -> Step {
+        Step(.sequence(steps), file: file, line: line)
+      }
+
+      @available(*, deprecated, message: "Perform this work directly in your test, instead")
+      public static func sequence(
+        _ steps: Step...,
+        file: StaticString = #file,
+        line: UInt = #line
+      ) -> Step {
+        Step(.sequence(steps), file: file, line: line)
+      }
+
+      fileprivate indirect enum StepType {
+        case send(LocalAction, (inout LocalState) throws -> Void)
+        case receive(Action, (inout LocalState) throws -> Void)
+        case environment((inout Environment) throws -> Void)
+        case `do`(() throws -> Void)
+        case sequence([Step])
+      }
+    }
+  }
+#endif
 
 // NB: Deprecated after 0.27.1:
 
@@ -293,36 +547,44 @@ extension Reducer {
         return .none
       }
       if index >= globalState[keyPath: toLocalState].endIndex {
-        if breakpointOnNil {
-          breakpoint(
+        #if DEBUG
+          os_log(
+            .fault, dso: rw.dso, log: rw.log,
             """
-            ---
-            Warning: Reducer.forEach@\(file):\(line)
+            A "forEach" reducer at "%@:%d" received an action when state contained no element at \
+            that index. …
 
-            "\(debugCaseOutput(localAction))" was received by a "forEach" reducer at index \
-            \(index) when its state contained no element at this index. This is generally \
-            considered an application logic error, and can happen for a few reasons:
+              Action:
+                %@
+              Index:
+                %d
 
-            * This "forEach" reducer was combined with or run from another reducer that removed \
+            This is generally considered an application logic error, and can happen for a few \
+            reasons:
+
+            • This "forEach" reducer was combined with or run from another reducer that removed \
             the element at this index when it handled this action. To fix this make sure that \
             this "forEach" reducer is run before any other reducers that can move or remove \
             elements from state. This ensures that "forEach" reducers can handle their actions \
             for the element at the intended index.
 
-            * An in-flight effect emitted this action while state contained no element at this \
+            • An in-flight effect emitted this action while state contained no element at this \
             index. While it may be perfectly reasonable to ignore this action, you may want to \
             cancel the associated effect when moving or removing an element. If your "forEach" \
             reducer returns any long-living effects, you should use the identifier-based \
             "forEach" instead.
 
-            * This action was sent to the store while its state contained no element at this \
+            • This action was sent to the store while its state contained no element at this \
             index. To fix this make sure that actions for this reducer can only be sent to a \
             view store when its state contains an element at this index. In SwiftUI \
             applications, use "ForEachStore".
-            ---
-            """
+            """,
+            "\(file)",
+            line,
+            debugCaseOutput(localAction),
+            index
           )
-        }
+        #endif
         return .none
       }
       return self.run(
