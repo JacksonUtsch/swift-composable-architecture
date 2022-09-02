@@ -7,6 +7,96 @@ import XCTest
 final class ComposableArchitectureTests: XCTestCase {
   var cancellables: Set<AnyCancellable> = []
 
+  func testHandling() async {
+    struct Ft1: ReducerProtocol {
+      typealias State = Int
+      typealias Action = Result<Actions, Errors>
+      enum Actions { case genTestError }
+      enum Errors: Error, Hashable { case test }
+      var body: some ReducerProtocol<State, Action> {
+        Reduce { state, action in
+          switch action {
+          case .success(let actions):
+            switch actions {
+            case .genTestError:
+              return Effect(value: .failure(.test))
+            }
+          case .failure(_): break
+          }
+          return .none }
+      }
+    }
+
+    struct Ft2: ReducerProtocol {
+      typealias State = Int
+      typealias Action = Result<Actions, Errors>
+      enum Actions: Equatable {}
+      enum Errors: Error, Hashable {}
+      var body: some ReducerProtocol<State, Action> {
+        Reduce { state, action in return .none }
+      }
+    }
+
+    struct Handling: ReducerProtocol {
+      typealias State = Int
+
+      enum Action: Equatable {
+        case ft1(Ft1.Actions)
+        case ft2(Ft2.Actions)
+        case handle(Errors)
+      }
+
+      enum Errors: Error, Equatable {
+        case ft1(Ft1.Errors)
+        case ft2(Ft2.Errors)
+      }
+
+      @Dependency(\.mainQueue) var mainQueue
+
+      var body: some ReducerProtocol<State, Action> {
+        Reduce { state, action in
+          switch action {
+          case .ft1(let secondary):
+            return Ft1().reduce(into: &state, action: .success(secondary))
+              .map { result in
+                switch result {
+                case .success(let value):
+                  return Action.ft1(value)
+                case .failure(let error):
+                  return Action.handle(.ft1(error))
+                }
+              }
+          case .ft2(let secondary):
+            return Ft2().reduce(into: &state, action: .success(secondary))
+              .map { result in
+                switch result {
+                case .success(let value):
+                  return Action.ft2(value)
+                case .failure(let error):
+                  return Action.handle(.ft2(error))
+                }
+              }
+          case .handle(let error):
+            state += 1
+            print("Handle or log: \(error)")
+          }
+          return .none
+        }
+      }
+    }
+
+    let store = TestStore(
+      initialState: 2,
+      reducer: Handling()
+    )
+
+    let mainQueue = DispatchQueue.test
+    store.dependencies.mainQueue = mainQueue.eraseToAnyScheduler()
+
+    await store.send(.ft1(.genTestError))
+    await store.receive(Handling.Action.handle(.ft1(.test))) { $0 += 1 }
+  }
+
   func testScheduling() async {
     struct Counter: ReducerProtocol {
       typealias State = Int
