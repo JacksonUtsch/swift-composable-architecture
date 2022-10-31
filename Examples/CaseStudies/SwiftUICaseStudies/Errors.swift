@@ -93,16 +93,16 @@ struct ParentFt: ReducerProtocol {
 
   enum Action {
     case setErrors(Bool)
-    case ftA(FtA.Ok)
-    case api(Api.Ok)
+    case ftA(FtA.Success)
+    case api(Api.Success)
     case listenForErrs
-    case report(Err)
+    case report(Failure)
     case setToast(String?)
   }
 
-  enum Err {
-    case ftA(FtA.Err)
-    case api(Api.Err)
+  enum Failure {
+    case ftA(FtA.Failure)
+    case api(Api.Failure)
   }
 
   @Dependency(\.errors) var errors
@@ -115,25 +115,25 @@ struct ParentFt: ReducerProtocol {
           state.errors = value
         case .ftA(let secondary):
           return FtA()
-            .reduce(into: &state.ftA, action: .ok(secondary))
+            .reduce(into: &state.ftA, action: .success(secondary))
             .map({ action in
               switch action {
-              case .ok(let ok):
-                return Action.ftA(ok)
-              case .err(let err):
-                return Action.report(.ftA(err))
+              case .success(let success):
+                return Action.ftA(success)
+              case .failure(let failure):
+                return Action.report(.ftA(failure))
               }
             })
             .eraseToEffect()
         case .api(let secondary):
           return Api()
-            .reduce(into: &state.api, action: .ok(secondary))
+            .reduce(into: &state.api, action: .success(secondary))
             .compactMap({ (action: Api.Action) -> Action? in
               switch action {
-              case .ok(let value):
-                return Action.api(value)
-              case .err(let error):
-                return Action.report(.api(error))
+              case .success(let success):
+                return Action.api(success)
+              case .failure(let failure):
+                return Action.report(.api(failure))
               }
             }).eraseToEffect()
         case .listenForErrs:
@@ -180,16 +180,16 @@ struct FtA: ReducerProtocol {
     var fact: String?
   }
 
-  typealias Action = Res<Ok, Err>
+  typealias Action = Result<Success, Failure>
 
-  enum Ok {
+  enum Success {
     case getDownload
     case setDownload(DownloadClient.Event?)
     case getFact
     case setFact(String?)
   }
 
-  enum Err {
+	enum Failure: Error {
     case downloadClient(Error)
     case factClient(Error)
   }
@@ -199,19 +199,19 @@ struct FtA: ReducerProtocol {
 
   func reduce(into state: inout State, action: Action) -> Effect<Action, Never> {
     enum UnexpectedError: Error { case emptyStream }
-    guard let action = action.ok else { return .none }
-    switch action {
+		guard case .success(let success) = action else { return .none }
+    switch success {
     case .getDownload:
       state.download = .updateProgress(0)
       return .task {
         do {
           for try await download in downloadClient.download(.init(string: "")!) {
-            return .ok(.setDownload(download))
+            return .success(.setDownload(download))
           }
         } catch {
-          return .err(.downloadClient(error))
+          return .failure(.downloadClient(error))
         }
-        return .err(.downloadClient(UnexpectedError.emptyStream))
+        return .failure(.downloadClient(UnexpectedError.emptyStream))
       }
     case .setDownload(let download):
       state.download = download
@@ -219,9 +219,9 @@ struct FtA: ReducerProtocol {
       return .task {
         do {
           let fact = try await factClient.fetch(1)
-          return .ok(.setFact(fact))
+          return .success(.setFact(fact))
         } catch {
-          return .err(.factClient(error))
+          return .failure(.factClient(error))
         }
       }
     case .setFact(let value):
@@ -256,9 +256,9 @@ struct Api: ReducerProtocol {
     }
   }
 
-  typealias Action = Res<Ok, Err>
+  typealias Action = Result<Success, Failure>
 
-  enum Ok: Hashable {
+  enum Success: Hashable {
     case login(name: String, password: String)
     case setAuth(State.Auth)
     case getMessage
@@ -266,7 +266,7 @@ struct Api: ReducerProtocol {
     case expiredToken
   }
 
-  enum Err: Error {
+  enum Failure: Error {
     case server(ServerError)
     case noAuth
 
@@ -293,35 +293,35 @@ struct Api: ReducerProtocol {
   @Dependency(\.api) var api
 
   func reduce(into state: inout State, action: Action) -> Effect<Action, Never> {
-    guard let action = action.ok else { return .none }
-    switch action {
+		guard case .success(let success) = action else { return .none }
+    switch success {
     case .login(let name, let password):
       return .task {
         switch await api.login(name, password) {
         case .success(let auth):
-          return Action.ok(.setAuth(auth))
-        case .failure(let error):
-          return .err(error)
+          return Action.success(.setAuth(auth))
+        case .failure(let failure):
+          return .failure(failure)
         }
       }
     case .setAuth(let auth):
       state.auth = auth
     case .getMessage:
       guard let accessToken = state.auth.accessToken else {
-        return Effect(value: .err(.noAuth))
+        return Effect(value: .failure(.noAuth))
       }
       return .task {
         switch await api.getMessage(accessToken) {
         case .success(let message):
-          return .ok(.setMessage(message))
-        case .failure(let error):
-          return .err(error)
+          return .success(.setMessage(message))
+        case .failure(let failure):
+          return .failure(failure)
         }
       }
     case .setMessage(let message):
       state.message = message
     case .expiredToken:
-      return Effect(value: .err(.server(.init(code: 401, message: "Expired token"))))
+      return Effect(value: .failure(.server(.init(code: 401, message: "Expired token"))))
     }
     return .none
   }
@@ -329,8 +329,8 @@ struct Api: ReducerProtocol {
 
 extension Api {
   struct Client {
-    var login: (_ name: String, _ password: String) async -> Result<Api.State.Auth, Api.Err>
-    var getMessage: (_ token: String) async -> Result<String, Api.Err>
+    var login: (_ name: String, _ password: String) async -> Result<Api.State.Auth, Api.Failure>
+    var getMessage: (_ token: String) async -> Result<String, Api.Failure>
   }
 }
 
@@ -368,21 +368,6 @@ extension Api.Client {
 extension Api.Client: DependencyKey {
   static var liveValue: Api.Client {
     testValue
-  }
-}
-
-
-/// A simple result type without the Error type requirement
-enum Res<Ok, Err> {
-  case ok(Ok)
-  case err(Err)
-
-  var ok: Ok? {
-    if case .ok(let value) = self {
-      return value
-    }
-
-    return nil
   }
 }
 
